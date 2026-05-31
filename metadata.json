@@ -1,0 +1,6 @@
+{
+  "name": "Calc Vault",
+  "description": "A fully functional Calculator that doubles as a secure hidden vault for photos, videos, and files. Setup a secure PIN, import media from storage, edit them in-app, or manage hidden apps.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
