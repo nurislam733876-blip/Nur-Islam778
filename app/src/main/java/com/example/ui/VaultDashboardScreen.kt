@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.example.data.SecretNote
 import com.example.data.VaultedItem
 import com.example.viewmodel.AppInfo
 import com.example.viewmodel.VaultScreen
@@ -55,12 +56,18 @@ fun VaultDashboardScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var selectedTab by remember { mutableStateOf(0) } // 0=Photos, 1=Videos, 2=Files, 3=Apps
+    var selectedTab by remember { mutableStateOf(0) } // 0=Photos, 1=Videos, 2=Files, 3=Notes, 4=Apps
     
     val photos by viewModel.photosList.collectAsState()
     val videos by viewModel.videosList.collectAsState()
     val files by viewModel.filesList.collectAsState()
+    val notes by viewModel.notesList.collectAsState()
     val hiddenApps by viewModel.hiddenAppsList.collectAsState()
+    val isDecoy by viewModel.isDecoyMode.collectAsState()
+
+    var showSecuritySettingsDialog by remember { mutableStateOf(false) }
+    var activeNoteForEditing by remember { mutableStateOf<SecretNote?>(null) }
+    var showNoteEditorDialog by remember { mutableStateOf(false) }
     
     // Pickers launchers
     val filePickerLauncher = rememberLauncherForActivityResult(
@@ -96,19 +103,39 @@ fun VaultDashboardScreen(
                         Icon(
                             Icons.Filled.Lock,
                             contentDescription = "Lock Logo",
-                            tint = VaultAccentEmerald,
+                            tint = if (isDecoy) Color(0xFFF43F5E) else VaultAccentEmerald,
                             modifier = Modifier.size(24.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "My Secret Vault",
-                            color = Color.White,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Column {
+                            Text(
+                                text = "My Secret Vault",
+                                color = Color.White,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (isDecoy) {
+                                Text(
+                                    text = "ডিকয় (নকল) স্পেস",
+                                    color = Color(0xFFF43F5E),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = { showSecuritySettingsDialog = true },
+                        modifier = Modifier.testTag("security_settings_button")
+                    ) {
+                        Icon(
+                            Icons.Filled.Settings,
+                            contentDescription = "Security Settings",
+                            tint = Color.LightGray
+                        )
+                    }
                     IconButton(
                         onClick = { viewModel.lockVault() },
                         modifier = Modifier.testTag("lock_action_button")
@@ -127,15 +154,20 @@ fun VaultDashboardScreen(
             )
         },
         floatingActionButton = {
-            if (selectedTab < 3) {
+            if (selectedTab < 4) {
                 FloatingActionButton(
                     onClick = {
-                        val pickType = when (selectedTab) {
-                            0 -> "image/*"
-                            1 -> "video/*"
-                            else -> "*/*"
+                        if (selectedTab == 3) {
+                            activeNoteForEditing = null
+                            showNoteEditorDialog = true
+                        } else {
+                            val pickType = when (selectedTab) {
+                                0 -> "image/*"
+                                1 -> "video/*"
+                                else -> "*/*"
+                            }
+                            filePickerLauncher.launch(pickType)
                         }
-                        filePickerLauncher.launch(pickType)
                     },
                     containerColor = VaultAccentEmerald,
                     contentColor = Color.White,
@@ -161,11 +193,12 @@ fun VaultDashboardScreen(
                     .padding(4.dp),
                 horizontalArrangement = Arrangement.SpaceAround
             ) {
-                val tabTitles = listOf("ছবি", "ভিডিও", "ফাইল", "অ্যাপস")
+                val tabTitles = listOf("ছবি", "ভিডিও", "ফাইল", "নোট", "অ্যাপস")
                 val tabIcons = listOf(
                     Icons.Filled.Star,
                     Icons.Filled.PlayArrow,
                     Icons.Filled.Menu,
+                    Icons.Filled.Edit,
                     Icons.Filled.Settings
                 )
                 
@@ -217,10 +250,44 @@ fun VaultDashboardScreen(
                         viewModel.navigateTo(VaultScreen.VideoPlayer)
                     })
                     2 -> FilesList(filesList = files, context = context, viewModel = viewModel)
-                    3 -> AppsDashboardTab(hiddenAppsList = hiddenApps, viewModel = viewModel, context = context)
+                    3 -> SecretNotesTab(
+                        notesList = notes,
+                        viewModel = viewModel,
+                        onOpenNoteEditor = { note ->
+                            activeNoteForEditing = note
+                            showNoteEditorDialog = true
+                        }
+                    )
+                    4 -> AppsDashboardTab(hiddenAppsList = hiddenApps, viewModel = viewModel, context = context)
                 }
             }
         }
+    }
+
+    if (showNoteEditorDialog) {
+        NoteEditorDialog(
+            note = activeNoteForEditing,
+            onDismiss = { showNoteEditorDialog = false },
+            onSave = { title, content, category, colorHex ->
+                viewModel.saveSecretNote(
+                    id = activeNoteForEditing?.id ?: 0,
+                    title = title,
+                    content = content,
+                    category = category,
+                    colorHex = colorHex
+                ) {
+                    Toast.makeText(context, "নোট সংরক্ষিত হয়েছে!", Toast.LENGTH_SHORT).show()
+                }
+                showNoteEditorDialog = false
+            }
+        )
+    }
+
+    if (showSecuritySettingsDialog) {
+        SecuritySettingsDialog(
+            viewModel = viewModel,
+            onDismiss = { showSecuritySettingsDialog = false }
+        )
     }
 }
 

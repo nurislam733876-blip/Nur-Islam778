@@ -96,25 +96,44 @@ class VaultViewModel(private val repository: VaultRepository) : ViewModel() {
     val isLoadingApps = MutableStateFlow(false)
 
     // --- Flows from Database ---
-    val allItems: StateFlow<List<VaultedItem>> = repository.allItems
+    val isDecoyMode = MutableStateFlow(false)
+    val decoyPasscode = MutableStateFlow<String?>(null)
+
+    val allItems: StateFlow<List<VaultedItem>> = combine(repository.allItems, isDecoyMode) { list, decoy ->
+        if (decoy) emptyList() else list
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val photosList: StateFlow<List<VaultedItem>> = combine(repository.getItemsByType("PHOTO"), isDecoyMode) { list, decoy ->
+        if (decoy) emptyList() else list
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val videosList: StateFlow<List<VaultedItem>> = combine(repository.getItemsByType("VIDEO"), isDecoyMode) { list, decoy ->
+        if (decoy) emptyList() else list
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val filesList: StateFlow<List<VaultedItem>> = combine(repository.getItemsByType("FILE"), isDecoyMode) { list, decoy ->
+        if (decoy) emptyList() else list
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val hiddenAppsList: StateFlow<List<HiddenApp>> = combine(repository.hiddenApps, isDecoyMode) { list, decoy ->
+        if (decoy) emptyList() else list
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // --- Secret Notes Management ---
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val notesList: StateFlow<List<SecretNote>> = isDecoyMode
+        .flatMapLatest { decoy -> repository.getSecretNotes(decoy) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val photosList: StateFlow<List<VaultedItem>> = repository.getItemsByType("PHOTO")
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val videosList: StateFlow<List<VaultedItem>> = repository.getItemsByType("VIDEO")
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val filesList: StateFlow<List<VaultedItem>> = repository.getItemsByType("FILE")
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val hiddenAppsList: StateFlow<List<HiddenApp>> = repository.hiddenApps
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val noteSearchQuery = MutableStateFlow("")
+    val selectedNoteCategory = MutableStateFlow("ALL")
 
     init {
         // Fetch setting to check if passcode already exists
         viewModelScope.launch {
             val pass = repository.getSetting("vault_passcode")
+            val decoy = repository.getDecoyPasscode()
+            decoyPasscode.value = decoy
             if (pass != null && pass.isNotEmpty()) {
                 isPasscodeSet.value = true
                 statusMessage.value = "পাসকোড সেট করা আছে। পাসকোড এন্টার করে '=' চাপুন।"
@@ -207,8 +226,17 @@ class VaultViewModel(private val repository: VaultRepository) : ViewModel() {
             if (isSet) {
                 // Verify passcode
                 val savedPass = repository.getSetting("vault_passcode")
+                val decoyPass = repository.getDecoyPasscode()
+
                 if (pin == savedPass) {
                     isUnlocked.value = true
+                    isDecoyMode.value = false
+                    statusMessage.value = "ভল্ট আনলকড!"
+                    onAllClearPressed()
+                    navigateTo(VaultScreen.VaultDashboard)
+                } else if (!decoyPass.isNullOrEmpty() && pin == decoyPass) {
+                    isUnlocked.value = true
+                    isDecoyMode.value = true
                     statusMessage.value = "ভল্ট আনলকড!"
                     onAllClearPressed()
                     navigateTo(VaultScreen.VaultDashboard)
@@ -228,6 +256,7 @@ class VaultViewModel(private val repository: VaultRepository) : ViewModel() {
                         repository.saveSetting("vault_passcode", pin)
                         isPasscodeSet.value = true
                         isUnlocked.value = true
+                        isDecoyMode.value = false
                         passcodeSetupStep.value = 2
                         statusMessage.value = "পাসকোড সফলভাবে সেট হয়েছে! ভল্ট আনলকড।"
                         onAllClearPressed()
@@ -245,10 +274,57 @@ class VaultViewModel(private val repository: VaultRepository) : ViewModel() {
     // Lock Vault
     fun lockVault() {
         isUnlocked.value = false
+        isDecoyMode.value = false
         passcodeSetupStep.value = 0
         currentScreen.value = VaultScreen.Calculator
         backStack.clear()
         onAllClearPressed()
+    }
+
+    // --- Secret Notes Operations ---
+    fun saveSecretNote(
+        id: Int = 0,
+        title: String,
+        content: String,
+        category: String = "NOTE",
+        colorHex: String = "#1E293B",
+        onDone: () -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val note = SecretNote(
+                id = id,
+                title = title.ifBlank { "শিরোনামহীন নোট" },
+                content = content,
+                category = category,
+                colorHex = colorHex,
+                isDecoy = isDecoyMode.value,
+                updatedAt = System.currentTimeMillis()
+            )
+            repository.saveSecretNote(note)
+            onDone()
+        }
+    }
+
+    fun deleteSecretNote(note: SecretNote, onDone: () -> Unit = {}) {
+        viewModelScope.launch {
+            repository.deleteSecretNote(note)
+            onDone()
+        }
+    }
+
+    fun setDecoyPasscode(newPin: String, onDone: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            repository.setDecoyPasscode(newPin)
+            decoyPasscode.value = newPin
+            onDone(true)
+        }
+    }
+
+    fun updateMainPasscode(newPin: String, onDone: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            repository.saveSetting("vault_passcode", newPin)
+            onDone(true)
+        }
     }
 
     // --- File Import / Export Core Operations ---

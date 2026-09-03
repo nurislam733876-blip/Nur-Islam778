@@ -26,6 +26,17 @@ data class HiddenApp(
     val isHidden: Boolean = true
 )
 
+@Entity(tableName = "secret_notes")
+data class SecretNote(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val title: String,
+    val content: String,
+    val category: String = "NOTE", // "NOTE", "PASSWORD", "DIARY", "BANK"
+    val colorHex: String = "#1E293B",
+    val isDecoy: Boolean = false,
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
 @Dao
 interface VaultDao {
     // Settings
@@ -63,9 +74,22 @@ interface VaultDao {
 
     @Query("DELETE FROM hidden_apps WHERE packageName = :packageName")
     suspend fun deleteHiddenApp(packageName: String)
+
+    // Secret Notes
+    @Query("SELECT * FROM secret_notes WHERE isDecoy = :isDecoy ORDER BY updatedAt DESC")
+    fun getNotesFlow(isDecoy: Boolean): Flow<List<SecretNote>>
+
+    @Query("SELECT * FROM secret_notes WHERE id = :id LIMIT 1")
+    suspend fun getNoteById(id: Int): SecretNote?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertNote(note: SecretNote): Long
+
+    @Delete
+    suspend fun deleteNote(note: SecretNote)
 }
 
-@Database(entities = [VaultSetting::class, VaultedItem::class, HiddenApp::class], version = 1, exportSchema = false)
+@Database(entities = [VaultSetting::class, VaultedItem::class, HiddenApp::class, SecretNote::class], version = 2, exportSchema = false)
 abstract class VaultDatabase : RoomDatabase() {
     abstract fun vaultDao(): VaultDao
 

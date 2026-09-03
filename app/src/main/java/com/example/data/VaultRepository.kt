@@ -189,4 +189,28 @@ class VaultRepository(private val vaultDao: VaultDao) {
         val updatedItem = item.copy(path = newFilePath, size = newSize, addedDate = System.currentTimeMillis())
         vaultDao.insertItem(updatedItem)
     }
+
+    // --- Secret Notes operations ---
+    fun getSecretNotes(isDecoy: Boolean): Flow<List<SecretNote>> = vaultDao.getNotesFlow(isDecoy)
+
+    suspend fun getSecretNoteById(id: Int): SecretNote? = withContext(Dispatchers.IO) {
+        vaultDao.getNoteById(id)
+    }
+
+    suspend fun saveSecretNote(note: SecretNote): Long = withContext(Dispatchers.IO) {
+        vaultDao.insertNote(note)
+    }
+
+    suspend fun deleteSecretNote(note: SecretNote) = withContext(Dispatchers.IO) {
+        vaultDao.deleteNote(note)
+    }
+
+    // --- Decoy PIN ---
+    suspend fun getDecoyPasscode(): String? = withContext(Dispatchers.IO) {
+        vaultDao.getSetting("vault_decoy_passcode")
+    }
+
+    suspend fun setDecoyPasscode(passcode: String) = withContext(Dispatchers.IO) {
+        vaultDao.saveSetting(VaultSetting("vault_decoy_passcode", passcode))
+    }
 }
